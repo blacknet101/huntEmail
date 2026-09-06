@@ -1,0 +1,23 @@
+# Certificates and keys
+*.pfx
+*.cer
+*.pem
+cert/*.pfx
+cert/*.cer
+
+# Secrets / local env
+.env
+.env.*
+
+# Evidence exports
+*.csv
+
+# Local api_info overrides (keep the template committed; ignore private copies)
+documentation/api_info.local.md
+documentation/api_info.private.md
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*~
