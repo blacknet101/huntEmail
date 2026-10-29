@@ -1,12 +1,15 @@
-# huntEmail.ps1 -- Script Breakdown
+# huntEmail -- Function Breakdown
 
 A section-by-section walkthrough of how `huntEmail` works under the hood.
 
 **Project location:** project root  
-**Script:** `huntEmail.ps1`  
-**Related:** `purgeEmail.ps1`, `timelineEmail.ps1`, and docs in `documentation\`
+**Module:** `huntEmail.psm1` (load with `Import-Module .\huntEmail.psd1` or `. .\huntEmail.ps1`)  
+**Related:** `timelineEmail`, `purgeEmail`, `huntCopilot`, and `auditCopilot` in the same module. `cert/createCert.ps1` stays a separate one-time setup script.  
+**Docs:** https://app.notion.com/p/40809ccbb4e38122852fdb2fb2cc8048
 
-**Last updated:** 2/24/2026 -- Reflects InternetMessageId search, attachment metadata, full body retrieval, EML export, Nyan mode, and PS 5.1/7 compatibility.
+Shared helpers (`Write-NyanProgress`, `Write-NyanComplete`, `Get-HuntEmailFolderMap`, `Get-HuntEmailPagedCollection`) are defined once in the module. The old separate `.ps1` files import the module so existing dot-source commands still load the functions.
+
+**Last updated:** 2026-10-29 -- Single-module layout. Search behavior below is unchanged: InternetMessageId `$filter`, keyword `$search`, receivedDateTime fallback, client-side filters, attachment metadata with inline files excluded, detailed body, and EML export.
 
 ---
 

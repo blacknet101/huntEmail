@@ -1,152 +1,210 @@
 # huntEmail — Email Threat Response Toolkit
 
-**huntEmail** is a PowerShell toolkit for Microsoft 365 email threat response. It uses Microsoft Graph (certificate auth) to search mailboxes for malicious messages, build delivery timelines, and hard-delete confirmed threats across folders — so security teams can hunt, investigate, and contain phishing in one pipeline.
+**huntEmail** is a PowerShell toolkit for Microsoft 365 email threat response. It uses Microsoft Graph app-only certificate auth to search mailboxes, build a delivery timeline, and hard-delete confirmed phishing or HR-directed mail. It also reads Microsoft 365 Copilot prompts and Purview audit metadata. Everything loads from one module.
+
+Docs: https://app.notion.com/p/40809ccbb4e38122852fdb2fb2cc8048
+
+That link is the Purview Copilot eDiscovery playbook. Copilot content is not deleted by this toolkit.
 
 ---
 
 ## Features
 
-| Capability | Script / alias | What it does |
-|------------|----------------|--------------|
-| **Hunt** | `huntEmail` / `hunt` | Tenant-wide (or scoped) mailbox search by sender, subject, keywords, attachment name, Internet Message-ID, and date range. Optional detailed body view and `.eml` export. |
-| **Timeline** | `timelineEmail` / `timeline` | Builds a chronological delivery picture: who got it, when, read/replied/forwarded. Accepts hunt results via the pipeline. |
-| **Purge** | `purgeEmail` / `purge` | Hard-deletes matching messages from **all** folders (Inbox, Sent, Archive, Deleted Items, Junk, custom). Supports `-WhatIf`, high `ConfirmImpact`, and a typed `PURGE` confirmation. |
+| Capability | Function / alias | What it does |
+|------------|------------------|--------------|
+| **Hunt** | `huntEmail` / `hunt` | Mailbox search by sender, subject, keywords, attachment name, Internet Message-ID, and date range. Optional detailed body and `.eml` export. |
+| **Timeline** | `timelineEmail` / `timeline` | Who received it, when, and whether it was read, deleted, junked, sent, or archived. Accepts hunt results on the pipeline. `-IncludeCopilot` flags Copilot use in that window. |
+| **Purge** | `purgeEmail` / `purge` | Hard-deletes matching **mail** messages. `-WhatIf`, high `ConfirmImpact`, and a typed `PURGE` confirmation. |
+| **Copilot content** | `huntCopilot` / `hcop` | Read-only. Prompts and responses from the Graph AI interaction history API. |
+| **Copilot audit** | `auditCopilot` / `acop` | Read-only. `Search-UnifiedAuditLog -RecordType CopilotInteraction`. Metadata only, no prompt text. |
+| **Menu** | `Start-HuntEmail` | Optional numbered menu. Direct function calls stay the primary interface. |
 
-Supporting helpers:
+Helpers in the same module:
 
-- `Connect-HuntEmailGraph.ps1` — certificate-based Graph connection (env vars or parameters)
-- `Import-HuntEmailCert.ps1` — one-time PFX import into `Cert:\CurrentUser\My`
-- `cert/createCert.ps1` — create self-signed `huntEmail.cer` / `huntEmail.pfx`
+- `Connect-HuntEmailGraph` — certificate Graph connection (parameters or `HUNTEMAIL_*` environment variables)
+- `Import-HuntEmailCert` — one-time PFX import into `Cert:\CurrentUser\My`
+- `cert/createCert.ps1` — one-time self-signed `huntEmail.cer` / `huntEmail.pfx` (kept separate from the module)
 
 ---
 
-## How the three scripts work
+## No Copilot purge
 
-### Individually
+There is no function that deletes Copilot content.
 
-1. **`huntEmail`** — Enumerates licensed mailboxes (or a UPN list you pass), queries Graph for matches, and returns structured result objects (mailbox, message id, subject, sender, received time, folder, etc.).
-2. **`timelineEmail`** — Either searches on its own criteria **or** accepts hunt result objects on the pipeline, then enrichs them into a timeline (delivery order, read/reply/forward signals).
-3. **`purgeEmail`** — Either searches on criteria **or** accepts hunt/timeline result objects, shows a confirmation banner, and permanently deletes via Graph’s hard-delete action.
+- Prompt and response removal is done only through **Purview eDiscovery**, per the playbook linked above. Microsoft's supported admin path is an eDiscovery case, not `purgeEmail`. `purgeEmail` only calls `POST /users/{id}/messages/{id}/permanentDelete` for ordinary mail.
+- **Copilot Memories** are not covered by Purview retention policies or retention labels. Microsoft Learn states that those policies do not apply to Copilot memory, and deleting a chat does not delete saved memories. This toolkit does not hold or delete them.
+- **Copilot Pages** and Copilot Notebooks live in a user-owned **SharePoint Embedded** container (the container's application name is `Loop`). They are not mailbox messages.
 
-### Together (recommended IR pipeline)
+---
 
-```text
-  Connect-HuntEmailGraph
-           |
-           v
-      huntEmail  ----------->  evidence / CSV / .eml
-           |
-           |  (pipeline objects)
-           v
-     timelineEmail  -------->  who/when/read/reply picture
-           |
-           |  (same or filtered objects)
-           v
-      purgeEmail  ---------->  hard delete (WhatIf → PURGE confirm)
+## Install and import
+
+PowerShell 7+ and the Microsoft Graph PowerShell module:
+
+```powershell
+Install-Module Microsoft.Graph -Scope CurrentUser
 ```
 
-```mermaid
-flowchart LR
-  A[Connect-HuntEmailGraph] --> B[huntEmail / hunt]
-  B --> C[timelineEmail / timeline]
-  C --> D[purgeEmail / purge]
-  B -->|Export-Csv / ExportEml| E[Evidence]
-  C -->|Export-Csv| E
+`auditCopilot` also needs Exchange Online PowerShell. That is a separate sign-in from `Connect-MgGraph`:
+
+```powershell
+Install-Module ExchangeOnlineManagement -Scope CurrentUser
+Connect-ExchangeOnline
 ```
 
-Example end-to-end:
+One download. Either of these loads every function and alias:
+
+```powershell
+Import-Module .\huntEmail.psd1
+```
 
 ```powershell
 . .\huntEmail.ps1
-. .\timelineEmail.ps1
-. .\purgeEmail.ps1
-
-huntEmail -Sender "phish@bad.example" -StartDate "2026-02-15" -EndDate "2026-02-18" |
-  timelineEmail |
-  purgeEmail -WhatIf
 ```
 
----
+Running `.\huntEmail.ps1` (not dot-sourcing it) loads the module and opens `Start-HuntEmail`.
 
-## Prerequisites
-
-- **PowerShell 7+** (Windows; Graph cert auth on the machine that holds the private key)
-- **Microsoft.Graph** PowerShell module (`Install-Module Microsoft.Graph -Scope CurrentUser`)
-- An **Entra ID app registration** with **Application** permissions (admin consent required):
-  - `Mail.Read`
-  - `Mail.ReadWrite`
-  - `User.Read.All`
-- Certificate credentials uploaded to that app (see Setup)
+`timelineEmail.ps1` and `purgeEmail.ps1` are compatibility shims that import the module. `Connect-HuntEmailGraph.ps1` and `Import-HuntEmailCert.ps1` are shims that call the functions of the same name.
 
 ---
 
-## Setup
+## Permissions
 
-1. **Create a certificate**  
-   Run `.\cert\createCert.ps1` (outputs `C:\certs\huntEmail.cer` and `C:\certs\huntEmail.pfx`).  
-   Details: [documentation/Certificate_Setup.md](documentation/Certificate_Setup.md)
+Application permissions on the Entra app (admin consent):
 
-2. **Configure Entra**  
-   Upload `huntEmail.cer` to your app’s Certificates & secrets. Grant and consent the permissions above.  
-   Record tenant ID, client ID, and cert thumbprint in a local copy of [documentation/api_info.md](documentation/api_info.md) (do not commit secrets).
+| Permission | Used by |
+|------------|---------|
+| `Mail.Read` | `huntEmail`, `timelineEmail` |
+| `Mail.ReadWrite` | `purgeEmail` |
+| `User.Read.All` | Tenant-wide mailbox enumeration |
+| `AiEnterpriseInteraction.Read.All` | `huntCopilot`, `timelineEmail -IncludeCopilot` |
 
-3. **Import the PFX** (once per workstation)
+`AiEnterpriseInteraction.Read.All` is application-only. Delegated permissions are not supported for this API. If it is not consented, `huntCopilot` stops with HTTP 401/403 and names the permission. The target user also needs a Microsoft 365 Copilot license with the **Microsoft Copilot with Graph-grounded chat** service plan.
 
-   ```powershell
-   $pwd = Read-Host "PFX password" -AsSecureString
-   .\Import-HuntEmailCert.ps1 -Password $pwd
-   ```
-
-4. **Set environment variables**
-
-   ```powershell
-   $env:HUNTEMAIL_TENANT_ID = "<DIRECTORY_TENANT_ID>"
-   $env:HUNTEMAIL_CLIENT_ID = "<APPLICATION_CLIENT_ID>"
-   $env:HUNTEMAIL_CERT_THUMBPRINT = "<CERTIFICATE_THUMBPRINT>"
-   ```
-
-5. **Connect**
-
-   ```powershell
-   .\Connect-HuntEmailGraph.ps1
-   ```
+`auditCopilot` does not use Graph. The Exchange Online account needs the **Audit Logs** or **View-Only Audit Logs** role (included by default in Compliance Management and Organization Management).
 
 ---
 
 ## Quick start
 
 ```powershell
-# Load functions
-. .\huntEmail.ps1
-. .\timelineEmail.ps1
-. .\purgeEmail.ps1
+Import-Module .\huntEmail.psd1
+Connect-HuntEmailGraph
 
-# Hunt by sender
-huntEmail -Sender "attacker@evil.example"
+huntEmail -Sender "phish@bad.example" -StartDate "2026-02-15" -EndDate "2026-02-18" |
+  timelineEmail |
+  purgeEmail -WhatIf
+```
 
-# Hunt by Internet Message-ID
+```powershell
 hunt -InternetMessageId "<ABC123@mail.example>"
+huntEmail -Sender "phish@bad.example" | timelineEmail -IncludeCopilot
+```
 
-# Timeline from hunt results
-huntEmail -Sender "phish@bad.example" | timelineEmail
+Copilot, audit metadata first, then the prompt text:
 
-# Dry-run purge
-huntEmail -Sender "attacker@evil.example" | purgeEmail -WhatIf
+```powershell
+Connect-ExchangeOnline
+auditCopilot -UserIds "user@example.com" -StartDate (Get-Date).AddDays(-7) |
+  huntCopilot |
+  Export-Csv .\copilot.csv -NoTypeInformation
+```
 
-# Live purge (types PURGE to confirm unless -Force)
-huntEmail -Sender "attacker@evil.example" | purgeEmail
+```powershell
+hcop -UserIds "user@example.com" -AppClass BizChat -StartDate (Get-Date).AddDays(-2)
+acop -UserIds "user@example.com" -StartDate (Get-Date).AddDays(-2) | Export-Csv .\audit.csv -NoTypeInformation
 ```
 
 ---
 
-## Safety notes
+## huntCopilot
 
-- **Hard delete is irreversible** — messages are permanently removed, not soft-deleted to Recoverable Items in the usual sense of Graph permanent delete.
-- Always start with **`-WhatIf`** on `purgeEmail`.
-- Live runs require typing **`PURGE`** unless you pass **`-Force`** (and PowerShell’s high confirm impact still applies when ShouldProcess is engaged).
-- Use **least privilege**: dedicated app registration, certificate auth (no long-lived client secrets), scoped operator accounts, and short-lived admin sessions.
-- Never commit `.pfx`, `.cer`, thumbprints, tenant/client IDs, or evidence CSVs to source control.
-- Prefer hunting and exporting evidence **before** purging.
+`GET https://graph.microsoft.com/v1.0/copilot/users/{id}/interactionHistory/getAllEnterpriseInteractions`
+
+Confirmed on Microsoft Learn (v1.0 and beta are both documented; this module calls **v1.0**). The normal `/users/{id}/messages` calls used by `huntEmail` do not return these hidden Copilot items (`IPM.SkypeTeams.Message.Copilot.*`).
+
+Query parameters used, matching Learn:
+
+- `$top=100` (Learn's recommended page size). Further pages follow `@odata.nextLink`.
+- `$filter` always sends **both** `createdDateTime gt` and `createdDateTime lt`. Learn requires both bounds and those operators are exclusive, so the module widens each bound by one second to keep the caller's range inclusive.
+- Optional `appClass eq 'IPM.SkypeTeams.Message.Copilot.<Name>'`.
+
+Supported `-AppClass` values from the Learn interaction-history filter list:
+
+| `-AppClass` | Item class sent to Graph |
+|-------------|--------------------------|
+| `Word` | `IPM.SkypeTeams.Message.Copilot.Word` |
+| `Excel` | `IPM.SkypeTeams.Message.Copilot.Excel` |
+| `Teams` | `IPM.SkypeTeams.Message.Copilot.Teams` |
+| `BizChat` | `IPM.SkypeTeams.Message.Copilot.BizChat` |
+| `WebChat` | `IPM.SkypeTeams.Message.Copilot.WebChat` |
+| `CoworkChat` | `IPM.SkypeTeams.Message.Copilot.CoworkChat` |
+
+Learn says other interaction-history filters are not supported. Purview eDiscovery documents additional item classes (`Outlook`, `PowerPoint`, `Loop`, `Whiteboard`, and others). Pass no `-AppClass` and filter the `AppClass` column if you need to see whether the service returns them. This was not executed against a live tenant.
+
+Each result is one flat object (prompt or response) with `UserId`, `CreatedDateTime`, `AppClass`, `InteractionType`, `Body`, and related context, link, and attachment columns. `Export-Csv` works on that output.
+
+`auditCopilot` output pipes in on `UserId`. If you do not pass `-StartDate` or `-EndDate`, the window is the min/max `CreationTime` of the piped audit rows.
+
+`-IncludeCopilot` on `timelineEmail` asks the same API, one page per recipient, whether that mailbox has any interaction in the delivery window. A missing `AiEnterpriseInteraction.Read.All` consent does not fail the timeline; the Copilot columns are left empty and the error names the permission.
+
+---
+
+## auditCopilot
+
+Wraps Exchange Online:
+
+```powershell
+Search-UnifiedAuditLog `
+  -RecordType CopilotInteraction `
+  -Operations CopilotInteraction `
+  -SessionId <guid> `
+  -SessionCommand ReturnLargeSet `
+  -ResultSize 5000 `
+  -Formatted `
+  -StartDate <utc> `
+  -EndDate <utc> `
+  -UserIds <upns>
+```
+
+The same `SessionId` and `ReturnLargeSet` are repeated until `ResultIndex` reaches `ResultCount`, or a page is empty. ReturnLargeSet stops at 50,000 rows; the function warns if it hits that cap.
+
+`AuditData` is parsed with the Copilot schema on Learn. Flat columns include:
+
+| Column | Schema source |
+|--------|----------------|
+| `UserId`, `CreationTime`, `Operation`, `RecordType`, `Workload`, `ClientRegion` | Audit record |
+| `AppHost`, `AppIdentity`, `ThreadId` | `CopilotEventData` |
+| `PromptMessageIds`, `ResponseMessageIds` | `Messages[]` (`isPrompt`) |
+| `AccessedResources`, `AccessedResourceUrls`, `AccessedResourceTypes`, `AccessedResourceActions` | `AccessedResources[]` `Name`, `SiteUrl`, `Type`, `Action` |
+| `SensitivityLabelIds` | `AccessedResources[].SensitivityLabelId` |
+| `ContextIds`, `ContextTypes` | `Contexts[]` |
+| `AISystemPlugins` | `AISystemPlugin[]` |
+| `ModelProviders`, `ModelNames` | `ModelTransparencyDetails[]` |
+
+The audit record does not contain the prompt or response text. Pipe to `huntCopilot` for that.
+
+If `Search-UnifiedAuditLog` or `Connect-ExchangeOnline` is missing, the function says so and does not pretend Graph auth is enough.
+
+---
+
+## Safety
+
+- Hard delete is irreversible. Start with `purgeEmail -WhatIf`.
+- A live purge asks you to type `PURGE` unless you pass `-Force`. `ConfirmImpact` is `High`.
+- Copilot functions are read-only. Do not point `purgeEmail` at Copilot item classes.
+- Use a dedicated app registration and certificate auth. Do not commit `.pfx`, `.cer`, thumbprints, tenant IDs, client IDs, or evidence exports.
+- Copilot bodies and audit rows are sensitive. Treat CSV output like any other incident export.
+
+---
+
+## Setup
+
+1. `.\cert\createCert.ps1` writes `C:\certs\huntEmail.cer` and `C:\certs\huntEmail.pfx`. See [documentation/Certificate_Setup.md](documentation/Certificate_Setup.md).
+2. Upload `huntEmail.cer` to the Entra app and consent the permissions above. Keep real IDs in a local copy of [documentation/api_info.md](documentation/api_info.md), not in git.
+3. Import the PFX once per workstation: `Import-HuntEmailCert` (or `.\Import-HuntEmailCert.ps1`).
+4. Set `HUNTEMAIL_TENANT_ID`, `HUNTEMAIL_CLIENT_ID`, and `HUNTEMAIL_CERT_THUMBPRINT`.
+5. `Connect-HuntEmailGraph` (or `.\Connect-HuntEmailGraph.ps1`).
 
 ---
 
@@ -154,20 +212,16 @@ huntEmail -Sender "attacker@evil.example" | purgeEmail
 
 | Path | Purpose |
 |------|---------|
-| `huntEmail.ps1` | Search / hunt function |
-| `timelineEmail.ps1` | Delivery timeline function |
-| `purgeEmail.ps1` | Hard-delete function |
-| `Connect-HuntEmailGraph.ps1` | Graph connection helper |
-| `Import-HuntEmailCert.ps1` | PFX import helper |
-| `cert/createCert.ps1` | Self-signed cert generator |
-| `cert/.gitkeep` | Keeps `cert/` in git without binaries |
-| `documentation/api_info.md` | Local config template (placeholders) |
-| `documentation/Certificate_Setup.md` | Cert + Entra setup guide |
-| `documentation/Threat_Model.md` | Threat model |
-| `documentation/huntEmail_Explained.md` | Deep dive on `huntEmail.ps1` |
+| `huntEmail.psm1` | All functions |
+| `huntEmail.psd1` | Module manifest |
+| `huntEmail.ps1` | Imports the module. Opens the menu when executed |
+| `timelineEmail.ps1`, `purgeEmail.ps1` | Deprecated shims that import the module |
+| `Connect-HuntEmailGraph.ps1`, `Import-HuntEmailCert.ps1` | Shims that call the module functions |
+| `cert/createCert.ps1` | One-time certificate creation |
+| `documentation/` | Setup, API template, threat model, hunt walkthrough |
+| `tests/Verify-HuntEmailModule.ps1` | Offline parse, export, and mocked URI checks |
 | `LICENSE` | MIT |
-| `SECURITY.md` | Vulnerability reporting & secret hygiene |
-| `.gitignore` | Ignores certs, secrets, evidence exports |
+| `SECURITY.md` | Vulnerability reporting and secret hygiene |
 
 ---
 
@@ -177,6 +231,8 @@ huntEmail -Sender "attacker@evil.example" | purgeEmail
 - [API / config template](documentation/api_info.md)
 - [Threat model](documentation/Threat_Model.md)
 - [huntEmail explained](documentation/huntEmail_Explained.md)
+
+Docs: https://app.notion.com/p/40809ccbb4e38122852fdb2fb2cc8048
 
 ---
 

@@ -13,7 +13,8 @@
 This document describes a generic threat model for the Email Threat Response Toolkit. The toolkit uses a Microsoft Entra application registration and Microsoft Graph application permissions to search, investigate, and purge email across a tenant.
 
 **Toolkit location:** project root  
-**Scripts:** `huntEmail.ps1`, `purgeEmail.ps1`, `timelineEmail.ps1`
+**Module:** `huntEmail.psm1` (`huntEmail`, `timelineEmail`, `purgeEmail`, `huntCopilot`, `auditCopilot`)  
+**Setup script:** `cert/createCert.ps1` (one-time; not part of the module)
 
 ---
 
@@ -49,6 +50,8 @@ This document describes a generic threat model for the Email Threat Response Too
 +------------------------------------------------------------------+
 ```
 
+`huntCopilot` reads the Graph AI interaction history API. `auditCopilot` reads the unified audit log through a separate Exchange Online session. Neither path deletes data.
+
 ---
 
 ## 3. Security Design
@@ -60,8 +63,13 @@ The email toolkit should use a dedicated app registration with only these applic
 | Permission | Function | What It Does |
 |------------|----------|--------------|
 | `Mail.Read` | `huntEmail`, `timelineEmail` | Read message content, folders, and MIME export data |
-| `Mail.ReadWrite` | `purgeEmail` | Delete messages from target mailboxes |
+| `Mail.ReadWrite` | `purgeEmail` | Delete ordinary mail messages from target mailboxes |
 | `User.Read.All` | `huntEmail` | Enumerate users for tenant-wide searches |
+| `AiEnterpriseInteraction.Read.All` | `huntCopilot`, `timelineEmail -IncludeCopilot` | Read Copilot prompts and responses. Application permission only. Not required for mail hunt or purge. |
+
+`auditCopilot` uses a separate Exchange Online session (`Connect-ExchangeOnline`) and the Audit Logs or View-Only Audit Logs role. It does not add a Graph permission.
+
+Copilot content is not deleted by this toolkit. Removal stays in Purview eDiscovery. Memories are outside Purview retention policies, and Copilot Pages live in SharePoint Embedded. Do not extend `purgeEmail` to those stores.
 
 Do not reuse a broad operational app that also holds device, directory, or endpoint-management permissions.
 

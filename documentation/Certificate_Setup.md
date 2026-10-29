@@ -2,7 +2,7 @@
 
 Use this guide to create a self-signed certificate and configure your Entra app registration for certificate-based auth (no client secret).
 
-**Project root:** the folder containing `huntEmail.ps1`  
+**Project root:** the folder containing `huntEmail.psd1`  
 **Cert output folder:** `C:\certs` (recommended) or `cert\` under the project root.
 
 **App details** (from `documentation/api_info.md` — replace with your own values):
@@ -131,14 +131,17 @@ Entra now trusts this certificate for authentication. You do **not** upload the 
 
 ## Step 3: Import the PFX on the machine that runs the toolkit
 
-Do this on the workstation or jump box where you run `huntEmail`, `purgeEmail`, and `timelineEmail`.
+Do this on the workstation or jump box where you run the huntEmail module.
 
-**Option A — Import helper script**
+**Option A — Import helper**
 
 ```powershell
+Import-Module .\huntEmail.psd1
 $pwd = Read-Host "Enter PFX password" -AsSecureString
-.\Import-HuntEmailCert.ps1 -PfxPath "C:\certs\huntEmail.pfx" -Password $pwd
+Import-HuntEmailCert -PfxPath "C:\certs\huntEmail.pfx" -Password $pwd
 ```
+
+`.\Import-HuntEmailCert.ps1` still works. It loads the module and calls the same function.
 
 **Option B — Import manually**
 
@@ -169,8 +172,11 @@ $env:HUNTEMAIL_TENANT_ID = "<DIRECTORY_TENANT_ID>"
 $env:HUNTEMAIL_CLIENT_ID = "<APPLICATION_CLIENT_ID>"
 $env:HUNTEMAIL_CERT_THUMBPRINT = "<CERTIFICATE_THUMBPRINT>"
 
-.\Connect-HuntEmailGraph.ps1
+Import-Module .\huntEmail.psd1
+Connect-HuntEmailGraph
 ```
+
+`.\Connect-HuntEmailGraph.ps1` still works. It loads the module and calls the same function.
 
 Or connect directly:
 
@@ -192,7 +198,7 @@ Get-MgContext
 Then run the toolkit as usual, e.g.:
 
 ```powershell
-. .\huntEmail.ps1
+Import-Module .\huntEmail.psd1
 huntEmail -Sender "test@example.com" -StartDate (Get-Date).AddDays(-1)
 ```
 
@@ -213,7 +219,7 @@ function Connect-HuntEmailGraph {
 
 Then: `Connect-HuntEmailGraph`
 
-Prefer the shipped `Connect-HuntEmailGraph.ps1` plus environment variables so secrets stay out of your profile script.
+Prefer `Connect-HuntEmailGraph` from the module plus environment variables so secrets stay out of your profile script.
 
 ---
 
@@ -222,8 +228,8 @@ Prefer the shipped `Connect-HuntEmailGraph.ps1` plus environment variables so se
 - [ ] Create self-signed cert; export `.cer` and `.pfx` (Step 1).
 - [ ] Upload **huntEmail.cer** in Entra → your app → Certificates & secrets (Step 2).
 - [ ] Import **huntEmail.pfx** on the machine that runs the toolkit (Step 3).
-- [ ] Grant admin consent for **Mail.Read**, **Mail.ReadWrite**, **User.Read.All** on the app (if not already done).
-- [ ] Connect with `Connect-HuntEmailGraph.ps1` / `Connect-MgGraph -CertificateThumbprint` and test hunt/purge/timeline (Step 4).
+- [ ] Grant admin consent for **Mail.Read**, **Mail.ReadWrite**, and **User.Read.All**. Add **AiEnterpriseInteraction.Read.All** only if you will use `huntCopilot` or `timelineEmail -IncludeCopilot`.
+- [ ] Connect with `Connect-HuntEmailGraph` / `Connect-MgGraph -CertificateThumbprint` and test hunt/purge/timeline (Step 4).
 - [ ] Store PFX and password securely; never commit `.pfx` / `.cer` to git.
 - [ ] Set a calendar reminder to renew the cert before it expires (e.g. 2 years from creation).
 
