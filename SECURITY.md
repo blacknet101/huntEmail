@@ -13,4 +13,8 @@ Please report security issues **privately** (for example via a private GitHub se
 
 ## Operational risk
 
-`purgeEmail` performs an **irreversible hard delete**. Always validate with hunt/timeline output and `-WhatIf` before a live purge. Type `PURGE` only when you intend permanent removal.
+`purgeEmail` performs an **irreversible hard delete** of ordinary mail. Always validate with hunt/timeline output and `-WhatIf` before a live purge. Type `PURGE` only when you intend permanent removal.
+
+`huntCopilot` and `auditCopilot` are read-only. Their output includes prompts, responses, and audit metadata. Treat it as incident evidence. Copilot content removal is a Purview eDiscovery task, not a function in this toolkit.
+
+Docs: https://app.notion.com/p/40809ccbb4e38122852fdb2fb2cc8048

@@ -27,7 +27,25 @@ Import-PfxCertificate -FilePath $PfxPath -CertStoreLocation Cert:\CurrentUser\My
 Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Thumbprint -eq "<CERTIFICATE_THUMBPRINT>" }
 ```
 
+## Application permissions
+
+Admin consent on the app registration:
+
+- `Mail.Read` — `huntEmail`, `timelineEmail`
+- `Mail.ReadWrite` — `purgeEmail`
+- `User.Read.All` — tenant-wide mailbox enumeration
+- `AiEnterpriseInteraction.Read.All` — `huntCopilot` and `timelineEmail -IncludeCopilot` only. Application permission. Delegated access is not supported. `huntCopilot` fails with a named error if this is not consented.
+
+`auditCopilot` does not use this app. It needs `Connect-ExchangeOnline` and the Exchange Online Audit Logs or View-Only Audit Logs role.
+
 ## Connect once cert has been imported
+
+```powershell
+Import-Module .\huntEmail.psd1
+Connect-HuntEmailGraph
+```
+
+Or the underlying cmdlet:
 
 ```powershell
 Connect-MgGraph -TenantId "<DIRECTORY_TENANT_ID>" -ClientId "<APPLICATION_CLIENT_ID>" -CertificateThumbprint "<CERTIFICATE_THUMBPRINT>" -NoWelcome
